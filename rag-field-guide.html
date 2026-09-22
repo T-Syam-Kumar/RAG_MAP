@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>RAG Field Guide — pipeline, metrics, production</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F2F3F6;
+    --surface:#FFFFFF;
+    --ink:#12141C;
+    --muted:#5B5F6B;
+    --line:#DEE1E8;
+    --flow:#2B4CE0;
+    --flow-soft:#E9EDFF;
+    --good:#0E8F6B;
+    --good-soft:#E4F5EE;
+    --warn:#9A3B26;
+    --warn-soft:#FBEAE4;
+    --amber:#B4790E;
+    --amber-soft:#FBF0DD;
+    --ink-soft:#1C2030;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:var(--flow-soft);}
+  .wrap{max-width:880px;margin:0 auto;padding:0 24px 120px;}
+
+  /* ---------- PROGRESS BAR ---------- */
+  .progress{position:fixed;top:0;left:0;height:3px;background:var(--flow);z-index:100;width:0%;transition:width .1s linear;}
+
+  /* ---------- HERO ---------- */
+  header.hero{
+    max-width:880px;margin:0 auto;padding:60px 24px 36px;
+    border-bottom:1px solid var(--line);
+  }
+  .kicker{
+    font-family:'JetBrains Mono',monospace;
+    font-size:13px;color:var(--flow);letter-spacing:0.02em;
+    margin-bottom:16px;display:flex;align-items:center;gap:10px;
+  }
+  .kicker::before{content:"";width:22px;height:1px;background:var(--flow);display:inline-block;}
+  h1.title{
+    font-family:'Fraunces',serif;font-weight:600;
+    font-size:clamp(34px,6vw,52px);line-height:1.06;
+    margin:0 0 16px;max-width:11ch;
+  }
+  .dek{font-size:17px;color:var(--muted);max-width:56ch;margin:0 0 24px;}
+  .hero-meta{display:flex;flex-wrap:wrap;gap:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);}
+  .hero-meta span{border:1px solid var(--line);padding:5px 10px;border-radius:3px;background:var(--surface);}
+
+  /* ---------- TL;DR ---------- */
+  .tldr{
+    background:var(--ink-soft);
+    color:#EDEFF7;
+    border-radius:10px;
+    padding:22px 24px 20px;
+    margin:32px 0 8px;
+  }
+  .tldr .tl-head{
+    font-family:'JetBrains Mono',monospace;font-size:11.5px;
+    color:#93A3FF;letter-spacing:.03em;margin-bottom:14px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .tldr .tl-head::before{content:"⚡";}
+  .tldr ol{margin:0;padding-left:20px;}
+  .tldr li{margin-bottom:9px;font-size:14.5px;color:#D7DAEA;}
+  .tldr li:last-child{margin-bottom:0;}
+  .tldr b{color:#FFFFFF;font-weight:600;}
+
+  /* ---------- NAV ---------- */
+  nav.toc{position:sticky;top:0;z-index:20;background:rgba(242,243,246,0.94);backdrop-filter:blur(6px);border-bottom:1px solid var(--line);}
+  nav.toc .inner{max-width:880px;margin:0 auto;padding:0 24px;display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;}
+  nav.toc .inner::-webkit-scrollbar{display:none;}
+  nav.toc a{
+    white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:12px;
+    color:var(--muted);text-decoration:none;padding:14px 12px;
+    border-bottom:2px solid transparent;transition:color .1s,border-color .1s;
+  }
+  nav.toc a:hover{color:var(--ink);}
+  nav.toc a.active{color:var(--flow);border-bottom-color:var(--flow);}
+
+  /* ---------- SECTIONS ---------- */
+  section{padding-top:56px;scroll-margin-top:54px;}
+  .sec-head{display:flex;align-items:baseline;gap:12px;margin-bottom:6px;}
+  .sec-num{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--flow);}
+  h2{font-family:'Fraunces',serif;font-weight:600;font-size:28px;margin:0;}
+  .sec-sub{color:var(--muted);font-size:15px;margin:6px 0 28px;max-width:60ch;}
+
+  /* ---------- PIPELINE FLOW ---------- */
+  .flow-label{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.03em;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .dot{width:6px;height:6px;border-radius:50%;display:inline-block;}
+  .dot.blue{background:var(--flow);}
+  .dot.amber{background:var(--amber);}
+  .flow{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;margin-bottom:6px;}
+  .node{
+    background:var(--surface);border:1px solid var(--line);border-radius:8px;
+    padding:14px 12px;flex:1 1 130px;min-width:118px;position:relative;
+    transition:transform .12s ease, box-shadow .12s ease;
+  }
+  .node:hover{transform:translateY(-2px);box-shadow:0 6px 14px rgba(20,25,50,.08);border-color:var(--flow);}
+  .node svg{width:20px;height:20px;color:var(--flow);margin-bottom:8px;display:block;}
+  .node .n-num{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--muted);display:block;margin-bottom:2px;}
+  .node .n-title{font-weight:600;font-size:13.5px;line-height:1.25;}
+  .flow.online .node svg{color:var(--amber);}
+  .arrow{display:flex;align-items:center;justify-content:center;flex:0 0 22px;color:var(--line);font-size:16px;}
+  @media (max-width:640px){
+    .flow{flex-direction:column;}
+    .arrow{transform:rotate(90deg);height:18px;}
+  }
+  .loopback{
+    font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);
+    border:1px dashed var(--line);border-radius:8px;padding:12px 14px;margin-top:16px;
+    display:flex;gap:8px;align-items:flex-start;
+  }
+  .loopback::before{content:"↺";color:var(--amber);font-size:15px;flex-shrink:0;}
+
+  /* ---------- IMPACT CHIP ---------- */
+  .impact{
+    display:inline-flex;align-items:center;gap:5px;
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;
+    padding:3px 8px;border-radius:20px;letter-spacing:.01em;
+    background:var(--flow-soft);color:var(--flow);
+  }
+  .impact::before{content:"⚡";font-size:10px;}
+  .impact.high{background:var(--warn-soft);color:var(--warn);}
+  .impact.high::before{content:"🔥";}
+
+  /* ---------- DETAILS / CARDS ---------- */
+  details{
+    background:var(--surface);border:1px solid var(--line);border-radius:8px;
+    margin-bottom:10px;overflow:hidden;
+  }
+  details[data-impact="high"]{border-left:3px solid var(--warn);}
+  details[data-impact="med"]{border-left:3px solid var(--flow);}
+  details summary{
+    list-style:none;cursor:pointer;padding:15px 18px;
+    display:flex;justify-content:space-between;align-items:center;
+    font-weight:600;font-size:15px;gap:12px;
+  }
+  details summary::-webkit-details-marker{display:none;}
+  .summary-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  details summary .plus{
+    font-family:'JetBrains Mono',monospace;color:var(--flow);font-size:18px;
+    flex-shrink:0;transition:transform .15s ease;
+  }
+  details[open] summary .plus{transform:rotate(45deg);}
+  details .body{padding:0 18px 20px;color:var(--ink);font-size:14.5px;}
+  details .body p{margin:0 0 10px;color:var(--muted);}
+  details .body ul{margin:0 0 10px;padding-left:20px;}
+  details .body li{margin-bottom:7px;}
+  details .body li b{color:var(--ink);}
+  .inline-code{font-family:'JetBrains Mono',monospace;background:var(--flow-soft);color:var(--flow);padding:1px 6px;border-radius:4px;font-size:13px;}
+  .tag-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 2px;}
+  .tag{font-family:'JetBrains Mono',monospace;font-size:11.5px;background:var(--bg);border:1px solid var(--line);padding:3px 9px;border-radius:20px;color:var(--muted);}
+
+  /* ---------- TABLES ---------- */
+  .tblwrap{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:24px;background:var(--surface);overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:520px;}
+  thead th{text-align:left;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);font-weight:500;background:var(--bg);padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  tbody td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink);}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--bg);}
+  td.metric-name{font-weight:600;white-space:nowrap;}
+  .imp-bar{display:flex;gap:3px;align-items:center;}
+  .imp-bar span{width:14px;height:5px;border-radius:2px;background:var(--line);}
+  .imp-bar span.on{background:var(--flow);}
+
+  /* ---------- CALLOUTS ---------- */
+  .callout{border-radius:8px;padding:16px 18px;margin-bottom:14px;font-size:14.5px;}
+  .callout.good{background:var(--good-soft);border:1px solid #BFE4D4;}
+  .callout.warn{background:var(--warn-soft);border:1px solid #EFC9BB;}
+  .callout .c-label{font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;display:block;margin-bottom:6px;}
+  .callout.good .c-label{color:var(--good);}
+  .callout.warn .c-label{color:var(--warn);}
+
+  /* ---------- PITFALL GRID ---------- */
+  .pitfall{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:16px 18px;margin-bottom:10px;}
+  .pitfall.high{border-left:3px solid var(--warn);}
+  .pitfall .p-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px;}
+  .pitfall .p-title{font-weight:600;font-size:14.5px;display:flex;align-items:center;gap:8px;}
+  .pitfall .p-title::before{content:"✕";color:var(--warn);font-size:13px;}
+  .pitfall .p-fix{color:var(--muted);font-size:13.5px;}
+  .pitfall .p-fix b{color:var(--good);font-weight:600;}
+  .sev{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--warn);white-space:nowrap;}
+
+  /* ---------- CHECKLIST ---------- */
+  .checklist{list-style:none;margin:0 0 24px;padding:0;}
+  .checklist li{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px;}
+  .checklist li:last-child{border-bottom:none;}
+  .checklist li::before{content:"□";color:var(--flow);font-family:'JetBrains Mono',monospace;flex-shrink:0;}
+  .checklist li.high::before{content:"■";color:var(--warn);}
+
+  footer{max-width:880px;margin:0 auto;padding:40px 24px 80px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:40px;}
+
+  /* back to top */
+  .totop{
+    position:fixed;bottom:22px;right:22px;
+    width:40px;height:40px;border-radius:50%;
+    background:var(--ink-soft);color:#fff;border:none;
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;opacity:0;pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease;
+    font-size:16px;z-index:50;
+  }
+  .totop.show{opacity:1;pointer-events:auto;}
+  .totop:hover{transform:translateY(-2px);}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<header class="hero">
+  <div class="kicker">RETRIEVAL-AUGMENTED GENERATION</div>
+  <h1 class="title">The RAG Field Guide</h1>
+  <p class="dek">A working reference for building, evaluating, and running RAG systems — from first chunk to production incident. Scan it in five minutes, or study it in fifty.</p>
+  <div class="hero-meta">
+    <span>9 pipeline stages</span>
+    <span>17 metrics</span>
+    <span>8 advanced techniques</span>
+    <span>production checklist</span>
+  </div>
+
+  <div class="tldr">
+    <div class="tl-head">IF YOU REMEMBER NOTHING ELSE</div>
+    <ol>
+      <li><b>Chunking is the highest-leverage decision in the pipeline</b> — no downstream fix repairs a bad chunk.</li>
+      <li><b>Hybrid search (dense + BM25) beats dense-only</b> almost everywhere exact terms, IDs, or rare words matter.</li>
+      <li><b>Reranking is usually the single best ROI addition</b> to a mediocre RAG system.</li>
+      <li><b>Build a fixed eval set before tuning anything</b> — without one, every "improvement" is a guess.</li>
+      <li><b>Retrieved documents are untrusted input</b> — treat them as data, never as instructions, to avoid prompt injection.</li>
+    </ol>
+  </div>
+</header>
+
+<nav class="toc" id="toc">
+  <div class="inner">
+    <a href="#pipeline" class="nlink">01 Pipeline</a>
+    <a href="#stages" class="nlink">02 Stage detail</a>
+    <a href="#metrics" class="nlink">03 Metrics</a>
+    <a href="#advanced" class="nlink">04 Advanced RAG</a>
+    <a href="#production" class="nlink">05 Production</a>
+    <a href="#pitfalls" class="nlink">06 Pitfalls</a>
+    <a href="#cheatsheet" class="nlink">07 Quick picks</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <!-- 01 PIPELINE -->
+  <section id="pipeline">
+    <div class="sec-head"><span class="sec-num">01</span><h2>The pipeline, end to end</h2></div>
+    <p class="sec-sub">Every RAG system is this shape, whichever tools fill it in. Two loops run inside it: the offline indexing loop builds the index once; the online query loop runs on every request.</p>
+
+    <div class="flow-label"><span class="dot blue"></span>OFFLINE — INDEXING (runs once / on document change)</div>
+    <div class="flow">
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h9l5 5v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg><span class="n-num">1</span><span class="n-title">Ingest &amp; parse</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/></svg><span class="n-num">2</span><span class="n-title">Chunk</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="5" cy="7" r="1.8"/><circle cx="12" cy="4" r="1.8"/><circle cx="19" cy="8" r="1.8"/><circle cx="9" cy="15" r="1.8"/><circle cx="17" cy="17" r="1.8"/><path d="M5 7l4 8M12 4l7 4M12 4L9 15M19 8l-2 9M9 15l8 2"/></svg><span class="n-num">3</span><span class="n-title">Embed</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="7" ry="2.5"/><path d="M5 5v14c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V5"/><path d="M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/></svg><span class="n-num">4</span><span class="n-title">Index / store</span></div>
+    </div>
+
+    <div class="flow-label" style="margin-top:26px;"><span class="dot amber"></span>ONLINE — QUERY (runs every request)</div>
+    <div class="flow online">
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20l3-9 9-9 4 4-9 9-9 3z"/><path d="M14 5l4 4"/></svg><span class="n-num">5</span><span class="n-title">Query rewrite</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-5-5"/></svg><span class="n-num">6</span><span class="n-title">Retrieve</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h10M4 18h6"/><path d="M17 15l3 3 3-3" transform="translate(-3 0)"/></svg><span class="n-num">7</span><span class="n-title">Rerank</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l1.8 4.6L18 9.5l-4.2 1.9L12 16l-1.8-4.6L6 9.5l4.2-1.9L12 3z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z"/></svg><span class="n-num">8</span><span class="n-title">Generate</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9.5 12l1.8 1.8L15 10"/></svg><span class="n-num">9</span><span class="n-title">Guardrail &amp; cite</span></div>
+    </div>
+
+    <div class="loopback">Evaluation (§03) scores every stage of this loop and feeds fixes back into chunking, retrieval config, and prompts — it isn't a one-time step, it's what keeps the pipeline honest over time.</div>
+  </section>
+
+  <!-- 02 STAGE DETAIL -->
+  <section id="stages">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Stage by stage</h2></div>
+    <p class="sec-sub">Expand each stage for the decisions that actually move quality. <span class="impact high">high leverage</span> marks stages where getting it wrong quietly sinks the whole system. Collapsed, this is your revision list.</p>
+
+    <details data-impact="high">
+      <summary><span class="summary-left">1 · Ingest &amp; parse</span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>Turn heterogeneous source formats into clean, structured text before anything else happens — errors here compound through the whole pipeline.</p>
+        <ul>
+          <li><b>Layout-aware parsing</b> for PDFs (tables, multi-column, headers/footers) beats naive text extraction — use a document-structure parser, not raw <span class="inline-code">pdftotext</span>.</li>
+          <li>Preserve structure as metadata: section titles, page numbers, source URL, doc version, timestamps — you'll need these for filtering and citations later.</li>
+          <li>OCR quality gates matter for scanned docs; garbage in is garbage retrieved.</li>
+          <li>Deduplicate near-identical documents before indexing — they crowd out diverse results.</li>
+        </ul>
+        <div class="tag-row"><span class="tag">unstructured.io</span><span class="tag">LlamaParse</span><span class="tag">Docling</span><span class="tag">Azure Doc Intelligence</span></div>
+      </div>
+    </details>
+
+    <details data-impact="high">
+      <summary><span class="summary-left">2 · Chunking <span class="impact high">highest leverage</span></span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>The single highest-leverage decision in the whole system. Bad chunks can't be fixed by a better model downstream.</p>
+        <ul>
+          <li><b>Fixed-size:</b> simplest, worst semantic coherence. Fine as a baseline only.</li>
+          <li><b>Recursive / structure-aware:</b> split on headings → paragraphs → sentences, respecting document structure. Good default.</li>
+          <li><b>Semantic chunking:</b> split where embedding similarity between adjacent sentences drops — coherent but more expensive to build.</li>
+          <li><b>Parent-child (small-to-big):</b> embed small chunks for precise retrieval, but return the larger parent chunk/section to the LLM for full context. Usually the best quality-to-effort ratio.</li>
+          <li><b>Sizing heuristic:</b> 256–512 tokens per chunk with 10–20% overlap is a reasonable starting point; tune against your own eval set, not this number.</li>
+        </ul>
+        <div class="callout warn"><span class="c-label">WATCH OUT</span>Chunking mid-sentence or mid-table breaks meaning. Always chunk on structural boundaries when the source has them.</div>
+      </div>
+    </details>
+
+    <details data-impact="med">
+      <summary><span class="summary-left">3 · Embedding</span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>Converts chunks into vectors that capture semantic meaning. Model choice trades off quality, cost, latency, and dimensionality.</p>
+        <ul>
+          <li>General-purpose: OpenAI <span class="inline-code">text-embedding-3</span>, Voyage AI, Cohere Embed, Google Gemini embeddings.</li>
+          <li>Open-source / self-hosted: BGE, E5, GTE, Nomic Embed — check the <span class="inline-code">MTEB</span> leaderboard for your domain and language.</li>
+          <li>Domain-specific beats general-purpose when you have the data: legal, medical, and code embeddings exist and materially help.</li>
+          <li>Match the embedding model to your query type — asymmetric models (short query → long passage) differ from symmetric ones (similar-length texts).</li>
+          <li><b>Re-embedding cost is real:</b> changing embedding models means re-indexing everything. Pick deliberately.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-impact="med">
+      <summary><span class="summary-left">4 · Indexing / vector store</span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>Where vectors live and how they're searched at scale.</p>
+        <ul>
+          <li><b>ANN algorithms:</b> HNSW (fast, memory-hungry, most common default), IVF/IVF-PQ (compressed, cheaper at huge scale, small recall trade-off), ScaNN.</li>
+          <li><b>Managed:</b> Pinecone, Weaviate Cloud, Qdrant Cloud, MongoDB Atlas Vector Search.</li>
+          <li><b>Self-hosted / embedded:</b> pgvector (if you're already on Postgres), Qdrant, Weaviate, Milvus, Chroma (prototyping).</li>
+          <li>Store metadata alongside vectors for filtered search (by date, source, permission level) — pure vector search without filters doesn't scale to real access-control needs.</li>
+          <li>Plan for updates: incremental upsert vs. full reindex changes your infra choice.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary><span class="summary-left">5 · Query processing</span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>Raw user queries are often bad retrieval queries — short, ambiguous, or missing the vocabulary that appears in your documents.</p>
+        <ul>
+          <li><b>Query rewriting:</b> expand abbreviations, resolve conversational context ("it", "that") before retrieval.</li>
+          <li><b>HyDE (Hypothetical Document Embeddings):</b> have the LLM draft a hypothetical answer first, embed that instead of the raw query — often closer to the target passages.</li>
+          <li><b>Decomposition:</b> break multi-part questions into sub-queries, retrieve for each, then synthesize.</li>
+          <li><b>Routing:</b> classify the query to pick the right index/tool (structured DB vs. document search vs. web) before retrieving anything.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-impact="high">
+      <summary><span class="summary-left">6 · Retrieval <span class="impact high">high leverage</span></span><span class="plus">+</span></summary>
+      <div class="body">
+        <ul>
+          <li><b>Dense (vector) retrieval:</b> good at semantic/paraphrase matches, weak on exact terms — IDs, product codes, rare proper nouns.</li>
+          <li><b>Sparse (BM25/keyword):</b> strong on exact-term and rare-word matches, no semantic understanding.</li>
+          <li><b>Hybrid:</b> run both, combine scores — usually the strongest general-purpose default. Combine via weighted sum or <span class="inline-code">Reciprocal Rank Fusion (RRF)</span>.</li>
+          <li>Retrieve more than you need (top 20–50) before reranking narrows it down — recall first, precision second.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-impact="high">
+      <summary><span class="summary-left">7 · Reranking <span class="impact">best ROI</span></span><span class="plus">+</span></summary>
+      <div class="body">
+        <p>A cross-encoder scores (query, chunk) pairs jointly — slower than the bi-encoder used for initial retrieval, but far more accurate, so it's used only on the shortlist.</p>
+        <ul>
+          <li>Cohere Rerank, BGE-reranker, ColBERT-style late-interaction models.</li>
+          <li>Typical pattern: retrieve top 30–50 → rerank → keep top 3–8 for the prompt.</li>
+          <li><b>This step alone is often the single highest-ROI addition</b> to a mediocre RAG system.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-impact="med">
+      <summary><span class="summary-left">8 · Generation</span><span class="plus">+</span></summary>
+      <div class="body">
+        <ul>
+          <li><b>"Lost in the middle":</b> models attend more reliably to the start and end of a long context — put the most relevant chunk first or last, not buried in the center.</li>
+          <li>Instruct the model explicitly to answer only from provided context and to say when it doesn't know — this reduces but doesn't eliminate hallucination.</li>
+          <li>Ask for inline citations (chunk IDs or source markers) so answers are traceable and verifiable.</li>
+          <li>Watch your context budget: more chunks isn't always better past a point — irrelevant context dilutes attention and cost.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-impact="med">
+      <summary><span class="summary-left">9 · Guardrails &amp; citation</span><span class="plus">+</span></summary>
+      <div class="body">
+        <ul>
+          <li>Post-hoc groundedness check: verify the generated claim is actually supported by the retrieved context before returning it.</li>
+          <li>Filter for PII leakage, toxic content, and off-policy topics before the response reaches the user.</li>
+          <li>Return source citations/links so users can verify — this is also your fastest debugging signal in production.</li>
+          <li>Define a fallback: what the system says when retrieval confidence is low, rather than confidently answering from nothing.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- 03 METRICS -->
+  <section id="metrics">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Metrics that actually tell you something</h2></div>
+    <p class="sec-sub">Split into three layers: is retrieval finding the right stuff, is generation using it faithfully, and is the system fast/cheap enough to ship. Bars show how often each metric decides a real production call.</p>
+
+    <p style="font-weight:600;font-size:14px;margin-bottom:8px;">Retrieval quality</p>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Metric</th><th>What it measures</th><th>Formula / intuition</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td class="metric-name">Precision@k</td><td>Of the top k retrieved chunks, how many are actually relevant.</td><td>relevant ∩ retrieved@k / k</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Recall@k</td><td>Of all relevant chunks that exist, how many made it into the top k.</td><td>relevant ∩ retrieved@k / all relevant</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></td></tr>
+          <tr><td class="metric-name">MRR</td><td>How high up the first relevant result lands, averaged over queries.</td><td>mean of 1/rank(first relevant hit)</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">NDCG@k</td><td>Precision that also rewards putting the most relevant items first.</td><td>discounted cumulative gain, normalized</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Hit rate</td><td>Fraction of queries where at least one relevant chunk appears in top k.</td><td>binary per query, then averaged</td><td><div class="imp-bar"><span class="on"></span><span></span><span></span><span></span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-weight:600;font-size:14px;margin-bottom:8px;">Generation quality (RAG-specific, e.g. RAGAS)</p>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Metric</th><th>What it measures</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td class="metric-name">Faithfulness</td><td>Does every claim in the answer trace back to the retrieved context — the core hallucination check.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span class="on"></span></div></td></tr>
+          <tr><td class="metric-name">Answer relevancy</td><td>Does the answer actually address the question asked, independent of whether it's grounded.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Context precision</td><td>Of the retrieved chunks used, how many were actually necessary — signals retrieval noise.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Context recall</td><td>Did retrieval surface everything needed, checked against a reference answer.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+          <tr><td class="metric-name">BLEU / ROUGE / BERTScore</td><td>Surface or embedding overlap with a reference answer — useful for regression tests, weak proxy for real quality.</td><td><div class="imp-bar"><span class="on"></span><span></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Human / LLM-as-judge</td><td>Pairwise or rubric scoring — still the gold standard for subtle quality issues.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="font-weight:600;font-size:14px;margin-bottom:8px;">System / production</p>
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Metric</th><th>Why it's tracked</th><th>Signal</th></tr></thead>
+        <tbody>
+          <tr><td class="metric-name">TTFT</td><td>Time to first token — dominates perceived responsiveness in streaming UIs.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">p95 / p99 latency</td><td>Tail latency, not the average, is what breaks user trust and SLAs.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Cost per query</td><td>Embedding + retrieval + rerank + generation tokens, summed.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Retrieval latency</td><td>Vector search + rerank time, tracked separately from generation time to isolate bottlenecks.</td><td><div class="imp-bar"><span class="on"></span><span></span><span></span><span></span></div></td></tr>
+          <tr><td class="metric-name">Index freshness</td><td>Lag between a source document changing and that change being queryable.</td><td><div class="imp-bar"><span class="on"></span><span class="on"></span><span></span><span></span></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout good"><span class="c-label">RULE OF THUMB</span>Build a fixed eval set (50–200 real questions with known-good answers/sources) before you tune anything. Without it, every "improvement" is a guess.</div>
+  </section>
+
+  <!-- 04 ADVANCED -->
+  <section id="advanced">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Advanced RAG patterns</h2></div>
+    <p class="sec-sub">Reach for these once naive retrieve-then-generate stops being good enough.</p>
+
+    <details>
+      <summary><span class="summary-left">Self-RAG / Corrective RAG (CRAG)</span><span class="plus">+</span></summary>
+      <div class="body"><p>The model critiques its own retrieved context, decides whether it's sufficient, and re-retrieves or falls back to a different source (e.g. web search) if not — adds robustness at the cost of extra latency.</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Agentic RAG</span><span class="plus">+</span></summary>
+      <div class="body"><p>The LLM acts as an agent that plans which tools/indexes to query, in what order, iterating over multiple retrieval steps rather than one fixed pass — needed for multi-hop or comparison questions across sources.</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">GraphRAG</span><span class="plus">+</span></summary>
+      <div class="body"><p>Builds a knowledge graph of entities and relationships from the corpus, then retrieves via graph traversal alongside or instead of vector search — strong for questions requiring relational or multi-hop reasoning across many documents ("how are X and Y connected").</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Multi-hop / iterative retrieval</span><span class="plus">+</span></summary>
+      <div class="body"><p>Retrieve, read, generate a follow-up query based on what's still missing, retrieve again — needed when one query can't surface everything the answer requires.</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Reciprocal Rank Fusion (RRF)</span><span class="plus">+</span></summary>
+      <div class="body"><p>A simple, robust way to merge ranked lists from dense and sparse retrieval without needing to calibrate score scales — sums <span class="inline-code">1/(k + rank)</span> across lists per document.</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Contextual compression</span><span class="plus">+</span></summary>
+      <div class="body"><p>After retrieval, strip irrelevant sentences from each chunk before it hits the prompt — shrinks context, cuts cost, and reduces the "lost in the middle" problem.</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Contextual retrieval (chunk-level context prefixing)</span><span class="plus">+</span></summary>
+      <div class="body"><p>Prepend a short LLM-generated summary of where a chunk sits in the larger document before embedding it — fixes chunks that are meaningless in isolation (e.g. "the company reported 10% growth" with no antecedent).</p></div>
+    </details>
+    <details>
+      <summary><span class="summary-left">Query routing / semantic caching</span><span class="plus">+</span></summary>
+      <div class="body"><p>Route queries to specialized indexes (FAQ, code, tickets) instead of one giant index; cache semantically similar past queries and their answers to skip the pipeline entirely on repeats.</p></div>
+    </details>
+  </section>
+
+  <!-- 05 PRODUCTION -->
+  <section id="production">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Getting to production</h2></div>
+    <p class="sec-sub">A prototype that works on 10 hand-picked questions is not a production system. This is what closes the gap — <span class="impact high">high impact</span> items marked.</p>
+
+    <ul class="checklist">
+      <li class="high"><b>Freshness pipeline:</b>&nbsp;automated re-indexing on document change, not manual reruns — with versioning so stale chunks don't linger.</li>
+      <li class="high"><b>Access control:</b>&nbsp;retrieval respects document-level permissions (RBAC) — never let vector search surface content a user shouldn't see.</li>
+      <li><b>Observability:</b>&nbsp;log every query, retrieved chunks, and final answer with trace IDs — you can't debug a bad answer you can't replay.</li>
+      <li><b>Semantic + exact caching:</b>&nbsp;cache embeddings, frequent queries, and even full answers where safe — the biggest cost lever after model choice.</li>
+      <li class="high"><b>Fallback behavior:</b>&nbsp;defined, tested response for low-confidence retrieval — "I don't know" beats a confident wrong answer.</li>
+      <li class="high"><b>Guardrails on both ends:</b>&nbsp;input filtering (prompt injection via retrieved documents is a real attack surface) and output filtering (PII, toxicity, groundedness).</li>
+      <li><b>A/B / shadow testing:</b>&nbsp;new chunking strategies, embedding models, or prompts get evaluated against the fixed eval set before rollout, then shadow-tested on live traffic.</li>
+      <li><b>Cost budget per query:</b>&nbsp;know your embedding, retrieval, rerank, and generation cost breakdown — reranking and long contexts are the usual surprise.</li>
+      <li><b>Rate limiting &amp; backpressure:</b>&nbsp;vector DB and LLM API both have limits; queue and degrade gracefully rather than failing hard.</li>
+      <li class="high"><b>Continuous eval:</b>&nbsp;the eval set and metrics from §03 run on every change, not just at launch — corpora and query patterns drift.</li>
+    </ul>
+
+    <div class="callout warn"><span class="c-label">PROMPT INJECTION VIA RETRIEVAL</span>Retrieved documents are untrusted input. A malicious or compromised document can contain instructions aimed at the LLM ("ignore previous instructions..."). Treat retrieved content as data, never as instructions, and sanitize/monitor for this pattern.</div>
+  </section>
+
+  <!-- 06 PITFALLS -->
+  <section id="pitfalls">
+    <div class="sec-head"><span class="sec-num">06</span><h2>Common pitfalls</h2></div>
+    <p class="sec-sub">The failure modes that show up in almost every RAG system at least once, ranked by how often they're the actual root cause.</p>
+
+    <div class="pitfall high">
+      <div class="p-top"><div class="p-title">Chunks too large or too small</div><div class="sev">MOST COMMON</div></div>
+      <div class="p-fix">Too large dilutes relevance signal and wastes context; too small loses meaning. <b>Fix:</b> parent-child chunking — small chunks for search, larger parents for context.</div>
+    </div>
+    <div class="pitfall high">
+      <div class="p-top"><div class="p-title">No eval set, tuning by vibes</div><div class="sev">MOST COMMON</div></div>
+      <div class="p-fix">Every change looks like an improvement on the three examples you eyeballed. <b>Fix:</b> build a fixed 50–200 question eval set early.</div>
+    </div>
+    <div class="pitfall high">
+      <div class="p-top"><div class="p-title">No hybrid search</div><div class="sev">COMMON</div></div>
+      <div class="p-fix">Pure dense retrieval misses exact IDs, codes, and rare terms. <b>Fix:</b> add BM25 and fuse with RRF.</div>
+    </div>
+    <div class="pitfall">
+      <div class="p-top"><div class="p-title">Optimizing generation while retrieval is broken</div><div class="sev">COMMON</div></div>
+      <div class="p-fix">A better prompt can't fix wrong context. <b>Fix:</b> measure retrieval metrics in isolation before touching the prompt.</div>
+    </div>
+    <div class="pitfall">
+      <div class="p-top"><div class="p-title">Stale index</div><div class="sev">COMMON</div></div>
+      <div class="p-fix">Documents change, the index doesn't. <b>Fix:</b> automated, event-driven re-indexing with freshness monitoring.</div>
+    </div>
+    <div class="pitfall">
+      <div class="p-top"><div class="p-title">Treating retrieved text as trusted instructions</div><div class="sev">HIGH SEVERITY</div></div>
+      <div class="p-fix">Opens the door to prompt injection from within your own corpus. <b>Fix:</b> clearly delimit retrieved content as data in the prompt template.</div>
+    </div>
+    <div class="pitfall">
+      <div class="p-top"><div class="p-title">No citations in the answer</div><div class="sev">EASY FIX</div></div>
+      <div class="p-fix">Unverifiable answers erode trust and make debugging nearly impossible. <b>Fix:</b> require inline source citations by default.</div>
+    </div>
+  </section>
+
+  <!-- 07 QUICK PICKS -->
+  <section id="cheatsheet">
+    <div class="sec-head"><span class="sec-num">07</span><h2>Quick decision picks</h2></div>
+    <p class="sec-sub">When you don't have time to deliberate, start here.</p>
+
+    <div class="tblwrap">
+      <table>
+        <thead><tr><th>Situation</th><th>Default choice</th></tr></thead>
+        <tbody>
+          <tr><td>Starting from zero</td><td>Recursive chunking (512 tok, 15% overlap) + hybrid search + rerank top 30→5</td></tr>
+          <tr><td>Lots of exact codes / IDs / rare terms</td><td>Hybrid (BM25 + dense) — dense alone will underperform</td></tr>
+          <tr><td>Queries reference relationships across many docs</td><td>Consider GraphRAG or agentic multi-hop retrieval</td></tr>
+          <tr><td>Chunks read as meaningless out of context</td><td>Contextual retrieval (prefix chunk with document summary) or parent-child chunking</td></tr>
+          <tr><td>High query volume, repeated questions</td><td>Semantic cache in front of the pipeline</td></tr>
+          <tr><td>Can't tell if a bad answer is retrieval's fault or generation's</td><td>Log and score context precision/recall separately from faithfulness</td></tr>
+          <tr><td>Latency-sensitive product</td><td>Smaller reranker, fewer chunks, streaming generation; measure TTFT not just total latency</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<footer>RAG Field Guide — a living reference. Revisit §03 and §06 most often; they're where real systems actually break.</footer>
+
+<button class="totop" id="totop" aria-label="Back to top">↑</button>
+
+<script>
+  // scroll progress bar
+  const progress = document.getElementById('progress');
+  const totop = document.getElementById('totop');
+  window.addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const scrolled = (h.scrollTop) / (h.scrollHeight - h.clientHeight) * 100;
+    progress.style.width = scrolled + '%';
+    totop.classList.toggle('show', h.scrollTop > 600);
+  });
+  totop.addEventListener('click', () => window.scrollTo({top:0, behavior:'smooth'}));
+
+  // scroll-spy nav
+  const links = document.querySelectorAll('.nlink');
+  const sections = Array.from(links).map(l => document.querySelector(l.getAttribute('href')));
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if(entry.isIntersecting){
+        links.forEach(l => l.classList.remove('active'));
+        const match = document.querySelector('.nlink[href="#' + entry.target.id + '"]');
+        if(match) match.classList.add('active');
+      }
+    });
+  }, {rootMargin: '-40% 0px -55% 0px', threshold: 0});
+  sections.forEach(s => { if(s) io.observe(s); });
+</script>
+
+</body>
+</html>
